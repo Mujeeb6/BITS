@@ -1,0 +1,291 @@
+from enum import Enum
+import random
+
+
+class JobType(Enum):
+    HARDWARE = "Hardware"
+    SOFTWARE = "Software"
+    DESIGN = "Design"
+
+
+class Job:
+    def __init__(self, job_number, job_type, exp_required, hours, penalty):
+        self.job_number = job_number
+        self.job_type = job_type
+        self.exp_required = exp_required
+        self.hours = hours
+        self.penalty = penalty
+
+    def __str__(self):
+        return f"Job Number: {self.job_number}, Type: {self.job_type.value}, " \
+               f"Difficulty Level: {self.exp_required}, Hours: {self.hours}, Penalty: £{self.penalty}"
+
+
+class StaffState(Enum):
+    AVAILABLE = "Available"
+    WORKING = "Working"
+    ONHOLIDAY = "On holiday"
+
+
+class Staff:
+    def __init__(self, name, experience, retainer, hourly_rate):
+        self.name = name
+        self.experience = experience
+        self.retainer = retainer
+        self.hourly_rate = hourly_rate
+        self.state = StaffState.AVAILABLE
+
+    def can_do_job(self, job):
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def __str__(self):
+        return f"Name: {self.name}, Type: {type(self).__name__}, " \
+               f"Experience: {self.experience}, Retainer: £{self.retainer}, " \
+               f"Hourly Rate: £{self.hourly_rate}, Available: {self.state == StaffState.AVAILABLE}, " \
+               f"On Holiday: {self.state == StaffState.ONHOLIDAY}"
+
+    def is_available(self):
+        return self.state == StaffState.AVAILABLE
+
+    def set_on_holiday(self, on_holiday):
+        if on_holiday:
+            self.state = StaffState.ONHOLIDAY
+        elif not self.is_on_holiday() and self.is_available():
+            self.state = StaffState.AVAILABLE
+        else:
+            self.state = StaffState.WORKING
+
+    def is_on_holiday(self):
+        return self.state == StaffState.ONHOLIDAY
+
+
+class Designer(Staff):
+    def __init__(self, name, experience, can_program):
+        super().__init__(name, experience, 300, experience * 15)
+        self.can_program = can_program
+
+    def can_do_job(self, job):
+        return (job.job_type == JobType.DESIGN or (self.can_program and job.job_type == JobType.SOFTWARE)) \
+               and job.exp_required <= self.experience
+
+
+class Engineer(Staff):
+    def __init__(self, name, experience, cisco_certified):
+        super().__init__(name, experience, 40 if cisco_certified else 30, 100 if cisco_certified else 30)
+        self.cisco_certified = cisco_certified
+
+    def can_do_job(self, job):
+        return job.job_type == JobType.HARDWARE and job.exp_required <= self.experience
+
+
+class Programmer(Staff):
+    def __init__(self, name, experience):
+        super().__init__(name, experience, 200, 20)
+
+    def can_do_job(self, job):
+        return (job.job_type == JobType.SOFTWARE or job.job_type == JobType.DESIGN) \
+               and job.exp_required <= self.experience
+
+
+class ITProject:
+    def __init__(self, manager, budget):
+        self.name = manager
+        self.account = budget
+        self.jobs = []
+        self.all_staff = []
+        self.team = []
+        self.setup_staff()
+        self.setup_jobs()
+
+    def __str__(self):
+        return f"Manager: {self.name}\nAccount: £{self.account}\nStatus: {'Overdrawn' if self.account <= 0 else 'In Budget'}\nTeam: {'No staff' if not self.team else self.get_team()}"
+
+    def get_account(self):
+        return self.account
+
+    def is_overdrawn(self):
+        return self.account <= 0 and not self.team
+
+    def is_job(self, num):
+        return any(job.job_number == num for job in self.jobs)
+
+    def get_all_jobs(self):
+        return "\n************ All Jobs ************\n" + "\n".join(str(job) for job in self.jobs)
+
+    def get_job(self, no):
+        for job in self.jobs:
+            if job.job_number == no:
+                return str(job)
+        return "No such job"
+
+    def get_staff(self, name):
+        for staff in self.all_staff:
+            if staff.name == name:
+                return str(staff)
+        return "\nNo such staff"
+
+    def get_cheap_staff(self, hourly_rate):
+        return "************ Cheap Staff ********\n" + "\n".join(str(staff) for staff in self.all_staff if staff.hourly_rate <= hourly_rate)
+
+    def get_all_available_staff(self):
+        return "************ Staff for Hire********\n" + "\n".join(str(staff) for staff in self.all_staff if staff.is_available())
+
+    def get_boss(self):
+        return self.name
+
+    def hire_staff(self, name):
+        for staff in self.all_staff:
+            if staff.name == name:
+                if not staff.is_available():
+                    return f"Already hired\n{staff.name} Account: £{self.account}"
+                if staff.retainer > self.account:
+                    return f"Not enough money\n{staff.name} Account: £{self.account}"
+                self.team.append(staff)
+                staff.set_available(False)
+                self.account -= staff.retainer
+                staff.state = StaffState.WORKING
+                return f"Hired {staff.name} Account: £{self.account}"
+        return f"Not found\nAccount: £{self.account}"
+
+    def is_in_team(self, name):
+        return any(staff.name == name for staff in self.team)
+
+    def get_team(self):
+        return "************ TEAM ********\n" + "\n".join(str(staff) for staff in self.team)
+
+    def do_job(self, job_number):
+        job = next((job for job in self.jobs if job.job_number == job_number), None)
+        if job is None:
+            self.account -= 50  # Penalty for job not found
+            return f"Job not completed as no job found. Account: £{self.account}"
+
+        staff = next((staff for staff in self.team if staff.can_do_job(job)), None)
+        if staff is None:
+            self.account -= job.penalty
+            return f"Job not completed as no staff available. Account: £{self.account}"
+
+        if job.exp_required > staff.experience:
+            self.account -= job.penalty
+            return f"Job not completed due to staff inexperience. Account: £{self.account}"
+
+        cost = job.hours * staff.hourly_rate
+        self.account += cost
+        staff.set_on_holiday(True)
+        return f"Job completed by {staff.name}. Account: £{self.account}"
+
+    def staff_rejoin_team(self, name):
+        for staff in self.all_staff:
+            if staff.name == name:
+                staff.state = StaffState.WORKING
+                staff.set_on_holiday(False)
+                return f"{staff.name} rejoined team"
+        return f"{name} not in team so can’t return from holiday"
+
+    def setup_staff(self):
+        self.all_staff.append(Designer("Amir", 2, False))
+        self.all_staff.append(Engineer("Bela", 2, False))
+        self.all_staff.append(Engineer("Ceri", 4, True))
+        self.all_staff.append(Programmer("Dana", 2))
+        self.all_staff.append(Programmer("Eli", 7))
+        self.all_staff.append(Designer("Firat", 6, True))
+        self.all_staff.append(Programmer("Gani", 2))
+        self.all_staff.append(Engineer("Hui", 8, True))
+        self.all_staff.append(Designer("Jaga", 4, True))
+        self.all_staff.append(Designer("Wizzo", 1, False))
+        self.all_staff.append(Engineer("Grimbler", 3, False))
+        self.all_staff.append(Designer("Lena", 4, True))
+        self.all_staff.append(Engineer("CodeTester", 8, True))
+
+    def setup_jobs(self):
+        self.jobs.append(Job(100, JobType.DESIGN, 3, 10, 200))
+        self.jobs.append(Job(101, JobType.HARDWARE, 3, 20, 150))
+        self.jobs.append(Job(102, JobType.SOFTWARE, 3, 30, 100))
+        self.jobs.append(Job(103, JobType.DESIGN, 9, 25, 250))
+        self.jobs.append(Job(104, JobType.SOFTWARE, 7, 15, 350))
+        self.jobs.append(Job(105, JobType.HARDWARE, 8, 35, 300))
+        self.jobs.append(Job(106, JobType.HARDWARE, 5, 20, 400))
+        self.jobs.append(Job(107, JobType.HARDWARE, 1, 10, 100))
+        self.jobs.append(Job(108, JobType.DESIGN, 3, 60, 100))
+        self.jobs.append(Job(109, JobType.DESIGN, 3, 20, 375))
+        self.jobs.append(Job(110, JobType.SOFTWARE, 3, 30, 100))
+
+   
+
+class ITProjectUI:
+    man1 = None
+
+    @staticmethod
+    def main():
+        my_in = None
+        while True:
+            try:
+                print("Enter the person in the name")
+
+                try:
+                    manager_name = input()
+                    man1 = ITProject(manager_name, 1000)  # Create ITProject instance
+                    choice = 100
+                    while choice != 0:
+                        choice = ITProjectUI.get_menu_item()
+                        if choice == 1:
+                            print(man1)
+                        elif choice == 2:
+                            print(man1.get_all_available_staff())
+                        elif choice == 3:
+                            print("Enter staff name")
+                            name = input().strip()
+                            if not man1.is_overdrawn():
+                                print(man1.hire_staff(name))
+                            else:
+                                print("Project is overdrawn")
+                        elif choice == 4:
+                            print("Enter job number")
+                            job_number = int(input().strip())
+                            print(man1.get_job(job_number))
+                        elif choice == 5:
+                            print(man1.get_all_jobs())
+                        elif choice == 6:
+                            print("Enter job number")
+                            job_number = int(input().strip())
+                            print(man1.do_job(job_number))
+                        elif choice == 7:
+                            print("Enter staff name")
+                            name = input().strip()
+                            if man1.is_in_team(name):
+                                print(man1.staff_rejoin_team(name))
+                            else:
+                                print(f"{name} not in team")
+                        elif choice == 8:
+                            print(f"Account: £{man1.get_account()}")
+                        elif choice == 9:
+                            print(man1)
+                except ValueError:
+                    print("Please enter a valid number")
+                except NameError:
+                    print("Program may have broken. Run again.")
+                print("Bye")
+                break
+            finally:
+                if my_in:
+                    my_in.close()
+
+    @staticmethod
+    def get_menu_item():
+        print("\nMain Menu")
+        print("0. Quit")
+        print("1. List project information")
+        print("2. List staff available for hire")
+        print("3. Hire staff for team")
+        print("4. List jobs")
+        print("5. Do a job")
+        print("6. Staff rejoin team from holiday")
+        print("7. State of the account")
+        print("8. State of the project")
+        try:
+            return int(input("Enter the number of your choice: ").strip())
+        except ValueError:
+            return 0  # Default to quitting if invalid input
+
+
+if __name__ == "__main__":
+    ITProjectUI.main()
